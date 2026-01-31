@@ -1,33 +1,27 @@
 blueprint:
-  name: ZHA - IKEA Styrbar (E2313) - Color Cycling
-  description: >
-    Reworked version of niro1987's 5-button blueprint for the 4-button Styrbar.
-    - Up: Toggle Light (Short), Reset to default (Long)
-    - Down: Dimming (Hold)
-    - Left/Right: Cycle through Color Presets
+  name: ZHA - IKEA Styrbar - Color Lights (No Helper)
+  description: >-
+    Control IKEA Color bulbs using an IKEA Styrbar remote via ZHA.
+    Up: Turn On / Increase Brightness
+    Down: Turn Off / Decrease Brightness
+    Left/Right: Cycle Color Hue
   domain: automation
   input:
     remote:
-      name: Remote
-      description: IKEA Styrbar remote to use
+      name: IKEA Styrbar remote
+      description: Select the remote control (E2313 / E2001).
       selector:
         device:
           integration: zha
           manufacturer: IKEA of Sweden
           model: Remote Control N2
     light:
-      name: Light(s)
-      description: The light(s) to control
+      name: Light
+      description: Select the color light to control.
       selector:
         target:
           entity:
             domain: light
-    color_helper:
-      name: Color Helper
-      description: Input Select helper containing your color presets (e.g. "255,100,50")
-      selector:
-        entity:
-          domain: input_select
 
 mode: restart
 max_exceeded: silent
@@ -39,88 +33,85 @@ trigger:
       device_id: !input remote
 
 action:
-  - variables:
-      command: "{{ trigger.event.data.command }}"
-      cluster_id: "{{ trigger.event.data.cluster_id }}"
-      endpoint_id: "{{ trigger.event.data.endpoint_id }}"
-
   - choose:
-      # UP BUTTON (Short Press) -> TOGGLE
+      # --- UP BUTTON ---
+      # Short Press Up: Turn On
       - conditions:
-          - "{{ command == 'on' }}"
-        sequence:
-          - service: light.toggle
-            target: !input light
-
-      # UP BUTTON (Long Press) -> RESET
-      - conditions:
-          - "{{ command == 'move_to_level_with_on_off' }}"
+          - "{{ trigger.event.data.command == 'on' }}"
+          - "{{ trigger.event.data.cluster_id == 6 }}"
         sequence:
           - service: light.turn_on
             target: !input light
-            data:
-              brightness: 254
-              kelvin: 2700
 
-      # DOWN BUTTON (Short Press) -> TURN OFF
+      # Long Press Up: Dim Up
       - conditions:
-          - "{{ command == 'off' }}"
-        sequence:
-          - service: light.turn_off
-            target: !input light
-
-      # LEFT BUTTON (Short Press) -> PREVIOUS PRESET
-      - conditions:
-          - "{{ command == 'press' and trigger.event.data.params.param1 == 257 }}"
-        sequence:
-          - service: input_select.select_previous
-            target:
-              entity_id: !input color_helper
-          - service: light.turn_on
-            target: !input light
-            data:
-              rgb_color: "{{ states(color_helper).split(',') | map('int') | list }}"
-
-      # RIGHT BUTTON (Short Press) -> NEXT PRESET
-      - conditions:
-          - "{{ command == 'press' and trigger.event.data.params.param1 == 256 }}"
-        sequence:
-          - service: input_select.select_next
-            target:
-              entity_id: !input color_helper
-          - service: light.turn_on
-            target: !input light
-            data:
-              rgb_color: "{{ states(color_helper).split(',') | map('int') | list }}"
-
-      # BRIGHTNESS UP (Hold Up)
-      - conditions:
-          - "{{ command == 'move_with_on_off' }}"
+          - "{{ trigger.event.data.command == 'move_with_on_off' or trigger.event.data.command == 'move' }}"
+          - "{{ trigger.event.data.params.move_mode == 0 }}"
         sequence:
           - repeat:
               while:
                 - condition: template
-                  value_template: "{{ wait.trigger == none }}"
+                  value_template: "{{ true }}" # Loops until automation restarts/stops
               sequence:
                 - service: light.turn_on
                   target: !input light
                   data:
                     brightness_step_pct: 10
-                - delay:
-                    milliseconds: 500
+                    transition: 0.5
+                - delay: milliseconds: 500
 
-      # BRIGHTNESS DOWN (Hold Down)
+      # --- DOWN BUTTON ---
+      # Short Press Down: Turn Off
       - conditions:
-          - "{{ command == 'move' }}"
+          - "{{ trigger.event.data.command == 'off' }}"
+          - "{{ trigger.event.data.cluster_id == 6 }}"
+        sequence:
+          - service: light.turn_off
+            target: !input light
+
+      # Long Press Down: Dim Down
+      - conditions:
+          - "{{ trigger.event.data.command == 'move_with_on_off' or trigger.event.data.command == 'move' }}"
+          - "{{ trigger.event.data.params.move_mode == 1 }}"
         sequence:
           - repeat:
               while:
                 - condition: template
-                  value_template: "{{ wait.trigger == none }}"
+                  value_template: "{{ true }}"
               sequence:
                 - service: light.turn_on
                   target: !input light
                   data:
                     brightness_step_pct: -10
-                - delay:
-                    milliseconds: 500
+                    transition: 0.5
+                - delay: milliseconds: 500
+
+      # --- RIGHT BUTTON (Color Cycle Up) ---
+      - conditions:
+          - "{{ trigger.event.data.command == 'press' }}"
+          - "{{ trigger.event.data.params.button_indicator == 257 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              hs_color:
+                - "{{ (state_attr(trigger.to_state.entity_id, 'hs_color')[0] | default(0) + 15) % 360 }}"
+                - 100
+
+      # --- LEFT BUTTON (Color Cycle Down) ---
+      - conditions:
+          - "{{ trigger.event.data.command == 'press' }}"
+          - "{{ trigger.event.data.params.button_indicator == 258 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              hs_color:
+                - "{{ (state_attr(trigger.to_state.entity_id, 'hs_color')[0] | default(0) - 15) % 360 }}"
+                - 100
+
+      # Stop command (sent when long press is released)
+      - conditions:
+          - "{{ trigger.event.data.command == 'stop' or trigger.event.data.command == 'stop_with_on_off' }}"
+        sequence:
+          - stop: "Button released"
