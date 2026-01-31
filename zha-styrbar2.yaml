@@ -1,5 +1,5 @@
 blueprint:
-  name: ZHA - IKEA Styrbar - Color Lights (No Helper) - Fixed
+  name: ZHA - IKEA Styrbar - Color Lights (No Helper) - Fixed2
   description: >-
     Control IKEA Color bulbs using an IKEA Styrbar remote via ZHA.
     Up: Turn On / Increase Brightness
