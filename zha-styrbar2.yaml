@@ -1,0 +1,117 @@
+blueprint:
+  name: ZHA - IKEA Styrbar - Color Lights (No Helper)
+  description: >-
+    Control IKEA Color bulbs using an IKEA Styrbar remote via ZHA.
+    Up: Turn On / Increase Brightness
+    Down: Turn Off / Decrease Brightness
+    Left/Right: Cycle Color Hue
+  domain: automation
+  input:
+    remote:
+      name: IKEA Styrbar remote
+      description: Select the remote control (E2313 / E2001).
+      selector:
+        device:
+          integration: zha
+          manufacturer: IKEA of Sweden
+          model: Remote Control N2
+    light:
+      name: Light
+      description: Select the color light to control.
+      selector:
+        target:
+          entity:
+            domain: light
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: event
+    event_type: zha_event
+    event_data:
+      device_id: !input remote
+
+action:
+  - choose:
+      # --- UP BUTTON ---
+      # Short Press Up: Turn On
+      - conditions:
+          - "{{ trigger.event.data.command == 'on' }}"
+          - "{{ trigger.event.data.cluster_id == 6 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+
+      # Long Press Up: Dim Up
+      - conditions:
+          - "{{ trigger.event.data.command == 'move_with_on_off' or trigger.event.data.command == 'move' }}"
+          - "{{ trigger.event.data.params.move_mode == 0 }}"
+        sequence:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ true }}" # Loops until automation restarts/stops
+              sequence:
+                - service: light.turn_on
+                  target: !input light
+                  data:
+                    brightness_step_pct: 10
+                    transition: 0.5
+                - delay: milliseconds: 500
+
+      # --- DOWN BUTTON ---
+      # Short Press Down: Turn Off
+      - conditions:
+          - "{{ trigger.event.data.command == 'off' }}"
+          - "{{ trigger.event.data.cluster_id == 6 }}"
+        sequence:
+          - service: light.turn_off
+            target: !input light
+
+      # Long Press Down: Dim Down
+      - conditions:
+          - "{{ trigger.event.data.command == 'move_with_on_off' or trigger.event.data.command == 'move' }}"
+          - "{{ trigger.event.data.params.move_mode == 1 }}"
+        sequence:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ true }}"
+              sequence:
+                - service: light.turn_on
+                  target: !input light
+                  data:
+                    brightness_step_pct: -10
+                    transition: 0.5
+                - delay: milliseconds: 500
+
+      # --- RIGHT BUTTON (Color Cycle Up) ---
+      - conditions:
+          - "{{ trigger.event.data.command == 'press' }}"
+          - "{{ trigger.event.data.params.button_indicator == 257 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              hs_color:
+                - "{{ (state_attr(trigger.to_state.entity_id, 'hs_color')[0] | default(0) + 15) % 360 }}"
+                - 100
+
+      # --- LEFT BUTTON (Color Cycle Down) ---
+      - conditions:
+          - "{{ trigger.event.data.command == 'press' }}"
+          - "{{ trigger.event.data.params.button_indicator == 258 }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              hs_color:
+                - "{{ (state_attr(trigger.to_state.entity_id, 'hs_color')[0] | default(0) - 15) % 360 }}"
+                - 100
+
+      # Stop command (sent when long press is released)
+      - conditions:
+          - "{{ trigger.event.data.command == 'stop' or trigger.event.data.command == 'stop_with_on_off' }}"
+        sequence:
+          - stop: "Button released"
