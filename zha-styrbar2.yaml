@@ -35,10 +35,8 @@ trigger:
 action:
   - choose:
       # --- UP BUTTON ---
-      # Short Press Up: Turn On
       - conditions:
           - "{{ trigger.event.data.command == 'on' }}"
-          - "{{ trigger.event.data.cluster_id == 6 }}"
         sequence:
           - service: light.turn_on
             target: !input light
@@ -51,20 +49,18 @@ action:
           - repeat:
               while:
                 - condition: template
-                  value_template: "{{ true }}" # Loops until automation restarts/stops
+                  value_template: "{{ true }}"
               sequence:
                 - service: light.turn_on
                   target: !input light
                   data:
                     brightness_step_pct: 10
                     transition: 0.5
-                - delay: milliseconds: 500
+                - delay: { milliseconds: 500 }
 
       # --- DOWN BUTTON ---
-      # Short Press Down: Turn Off
       - conditions:
           - "{{ trigger.event.data.command == 'off' }}"
-          - "{{ trigger.event.data.cluster_id == 6 }}"
         sequence:
           - service: light.turn_off
             target: !input light
@@ -84,7 +80,7 @@ action:
                   data:
                     brightness_step_pct: -10
                     transition: 0.5
-                - delay: milliseconds: 500
+                - delay: { milliseconds: 500 }
 
       # --- RIGHT BUTTON (Color Cycle Up) ---
       - conditions:
@@ -95,7 +91,11 @@ action:
             target: !input light
             data:
               hs_color:
-                - "{{ (state_attr(trigger.to_state.entity_id, 'hs_color')[0] | default(0) + 15) % 360 }}"
+                # Extracts the current Hue, adds 15, wraps at 360
+                - >
+                  {% set light_entity = (state_attr(trigger.event.data.device_id, 'entity_id') | default('')) %}
+                  {% set current_hue = state_attr(light_entity, 'hs_color')[0] | default(0) %}
+                  {{ (current_hue + 15) % 360 }}
                 - 100
 
       # --- LEFT BUTTON (Color Cycle Down) ---
@@ -107,7 +107,10 @@ action:
             target: !input light
             data:
               hs_color:
-                - "{{ (state_attr(trigger.to_state.entity_id, 'hs_color')[0] | default(0) - 15) % 360 }}"
+                - >
+                  {% set light_entity = (state_attr(trigger.event.data.device_id, 'entity_id') | default('')) %}
+                  {% set current_hue = state_attr(light_entity, 'hs_color')[0] | default(0) %}
+                  {{ (current_hue - 15) % 360 }}
                 - 100
 
       # Stop command (sent when long press is released)
